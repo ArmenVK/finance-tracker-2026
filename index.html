@@ -47,14 +47,34 @@
   tr:last-child td {
     border-bottom: none;
   }
-  td:last-child {
+  td:nth-child(3) {
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  td:last-child {
+    width: 1%;
+    text-align: center;
+    padding: 8px;
   }
   tfoot td {
     font-weight: 700;
     background: #262626;
     border-top: 2px solid #3a3a3a;
+  }
+  .delete-btn {
+    background: transparent;
+    border: 1px solid #4a2a2a;
+    border-radius: 6px;
+    color: #d98a8a;
+    width: 28px;
+    height: 28px;
+    line-height: 1;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .delete-btn:hover {
+    background: #3a1f1f;
+    border-color: #7a3a3a;
   }
   form {
     display: flex;
@@ -132,36 +152,23 @@
         <th>Дата</th>
         <th>Категория</th>
         <th>Сумма</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td>03.01.2026</td>
-        <td>Продукты</td>
-        <td>4 250 ₽</td>
-      </tr>
-      <tr>
-        <td>05.01.2026</td>
-        <td>Транспорт</td>
-        <td>1 100 ₽</td>
-      </tr>
-      <tr>
-        <td>10.01.2026</td>
-        <td>Зарплата</td>
-        <td>120 000 ₽</td>
-      </tr>
     </tbody>
     <tfoot>
       <tr>
         <td colspan="2">Итого</td>
-        <td>125 350 ₽</td>
+        <td>0 ₽</td>
+        <td></td>
       </tr>
     </tfoot>
   </table>
   <script>
     const STORAGE_KEY = 'finance2026.entries';
     const tbody = document.querySelector('table tbody');
-    const tfootCell = document.querySelector('table tfoot td:last-child');
+    const tfootCell = document.querySelector('table tfoot td:nth-child(2)');
     const categoryList = document.getElementById('category-list');
     const form = document.getElementById('add-entry-form');
 
@@ -176,9 +183,14 @@
     }
 
     function formatAmount(value) {
+      if (value === 0) return '0 ₽';
       const sign = value < 0 ? '-' : '+';
       const formatted = Math.abs(value).toLocaleString('ru-RU');
       return `${sign}${formatted} ₽`;
+    }
+
+    function makeId() {
+      return (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
     }
 
     function refreshCategoryList() {
@@ -199,9 +211,10 @@
       tfootCell.textContent = formatAmount(total);
     }
 
-    function insertRowSorted(dateText, category, amountText) {
+    function insertRowSorted(dateText, category, amountText, id) {
       const row = document.createElement('tr');
-      row.innerHTML = `<td>${dateText}</td><td>${category}</td><td>${amountText}</td>`;
+      row.dataset.id = id;
+      row.innerHTML = `<td>${dateText}</td><td>${category}</td><td>${amountText}</td><td><button type="button" class="delete-btn" title="Удалить запись">✕</button></td>`;
       const newDate = parseRuDate(dateText);
       const existingRows = Array.from(tbody.querySelectorAll('tr'));
       const nextRow = existingRows.find(tr => parseRuDate(tr.children[0].textContent) > newDate);
@@ -214,7 +227,17 @@
 
     function loadSavedEntries() {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      saved.forEach(entry => insertRowSorted(entry.date, entry.category, entry.amountText));
+      let migrated = false;
+      saved.forEach(entry => {
+        if (!entry.id) {
+          entry.id = makeId();
+          migrated = true;
+        }
+      });
+      if (migrated) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      }
+      saved.forEach(entry => insertRowSorted(entry.date, entry.category, entry.amountText, entry.id));
     }
 
     function saveEntry(entry) {
@@ -222,6 +245,23 @@
       saved.push(entry);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     }
+
+    function deleteEntry(id) {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      const filtered = saved.filter(entry => entry.id !== id);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    }
+
+    tbody.addEventListener('click', event => {
+      const button = event.target.closest('.delete-btn');
+      if (!button) return;
+      const row = button.closest('tr');
+      if (!confirm('Удалить запись?')) return;
+      deleteEntry(row.dataset.id);
+      row.remove();
+      refreshCategoryList();
+      recalcTotal();
+    });
 
     loadSavedEntries();
     refreshCategoryList();
@@ -240,9 +280,10 @@
       const category = categoryInput.value.trim();
       const amountValue = parseFloat(amountInput.value) * (typeInput.value === 'expense' ? -1 : 1);
       const amountText = formatAmount(amountValue);
+      const id = makeId();
 
-      insertRowSorted(dateText, category, amountText);
-      saveEntry({ date: dateText, category, amountText });
+      insertRowSorted(dateText, category, amountText, id);
+      saveEntry({ id, date: dateText, category, amountText });
       refreshCategoryList();
       recalcTotal();
       form.reset();
